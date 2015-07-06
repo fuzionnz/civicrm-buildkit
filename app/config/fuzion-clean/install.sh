@@ -9,8 +9,8 @@ amp_install
 
 ###############################################################################
 ## Setup Drupal (config files, database tables)
-
-drupal_install
+drupal_install fuzion
+chmod 775 ${WEB_ROOT}/sites/all/modules/civicrm/bin/*
 
 ###############################################################################
 ## Setup CiviCRM (config files, database tables)
@@ -52,9 +52,5 @@ pushd "${WEB_ROOT}/sites/${DRUPAL_SITE_DIR}" >> /dev/null
   #drush -y user-add-role civicrm_webtest_user "$DEMO_USER"
   # In Garland, CiviCRM's toolbar looks messy unless you also activate Drupal's "toolbar", so grant "access toolbar"
   # We've activated more components than typical web-test baseline, so grant rights to those components.
-  for perm in 'access toolbar'
-  do
-    drush -y role-add-perm civicrm_webtest_user "$perm"
-  done
 
 popd >> /dev/null
