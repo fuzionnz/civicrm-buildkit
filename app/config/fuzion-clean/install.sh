@@ -52,5 +52,6 @@ pushd "${WEB_ROOT}/sites/${DRUPAL_SITE_DIR}" >> /dev/null
   #drush -y user-add-role civicrm_webtest_user "$DEMO_USER"
   # In Garland, CiviCRM's toolbar looks messy unless you also activate Drupal's "toolbar", so grant "access toolbar"
   # We've activated more components than typical web-test baseline, so grant rights to those components.
+  drush en -y fubik rubik tao
 
 popd >> /dev/null
