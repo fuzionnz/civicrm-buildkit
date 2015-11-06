@@ -15,7 +15,6 @@ function absdirname() {
 
 BINDIR=$(absdirname "$0")
 PRJDIR=$(dirname "$BINDIR")
-WEBDIR="$PRJDIR/web"
 TMPDIR="$PRJDIR/app/tmp"
 LOCKFILE="$TMPDIR/civi-download-tools.lock"
 LOCKTIMEOUT=90
@@ -25,64 +24,7 @@ HUBTAG="v1.12.4"
 HUBURL="https://github.com/github/hub"
 IS_QUIET=
 IS_FORCE=
-
-##################################################
-## Helpers
-
-## usage: download_url <url> <out-file>
-function download_url() {
-  #php -r "echo file_get_contents('$1');" > $2
-  if which wget >> /dev/null ; then
-    wget -O "$2" "$1"
-  elif which curl >> /dev/null ; then
-    curl -L -o "$2" "$1"
-  else
-    echo "error: failed to locate curl or wget"
-  fi
-}
-
-## usage: echo_comment <message>
-function echo_comment() {
-  if [ -z "$IS_QUIET" ]; then
-    echo "$@"
-  fi
-}
-
-## Ensure that a command is on the PATH. If missing, then give
-## advice on possible resolutions and exit.
-## usage: check_command <command-name> <required|recommended> [<msg>]
-function check_command() {
-  local cmd="$1"
-  local requirement="$2"
-  local msg="$3"
-  [ -z "$msg" ] && msg="Failed to locate command \"$cmd\". Please install it (and set the PATH appropriately)."
-
-  cmdpath=$(which $cmd)
-  if [ -z "$cmdpath" ]; then
-    echo "$msg"
-    local is_first=1
-    for altdir in \
-      /Applications/MAMP/Library/bin \
-      /Applications/MAMP/bin/php/php*/bin \
-      /{usr,opt}{,/local}/bin \
-      /{usr,opt}{,/local}/*/bin \
-      /{usr,opt}{,/local}/lib/*/bin
-    do
-      if [ -f "$altdir/$cmd" ]; then
-        if [ -n "$is_first" ]; then
-          echo ""
-          echo "It is possible that you have already installed \"$cmd\" in a non-standard location."
-          echo "If so, please update the PATH appropriately. Possible matches were found in:"
-          is_first=
-        fi
-        echo " * $altdir"
-      fi
-    done
-    if [ "$requirement" = "required" ]; then
-      exit 3
-    fi
-  fi
-}
+IS_FULL=
 
 ##################################################
 ## Parse arguments
@@ -95,21 +37,295 @@ while [ -n "$1" ] ; do
       ## Don't display advisory comments
       ## Only display messages if we're actually making changes
       IS_QUIET=1
-      shift
       ;;
 
     -f|--force)
       ## (Re)-download everything
       IS_FORCE=1
+      ;;
+
+    --full)
+      ## Heuristically identify/download system packages.
+      IS_FULL=1
+      ;;
+
+    --dir)
+      set -e
+        [ ! -d "$1" ] && mkdir "$1"
+        pushd "$1" >> /dev/null
+          PRJDIR=$(pwd)
+        popd >> /dev/null
+        BINDIR="$PRJDIR/bin"
+        TMPDIR="$PRJDIR/app/tmp"
+        LOCKFILE="$TMPDIR/civi-download-tools.lock"
+      set +e
       shift
       ;;
 
     *)
       echo "Unrecognized option: $OPTION"
-      civibuild_usage
+      echo "Usage: $0 [-q|--quiet] [-f|--force] [--full] [--dir <path>]"
       ;;
   esac
 done
+
+###############################################################################
+## usage: download_url <url> <out-file>
+function download_url() {
+  #php -r "echo file_get_contents('$1');" > $2
+  if which wget >> /dev/null ; then
+    wget -O "$2" "$1"
+  elif which curl >> /dev/null ; then
+    curl -L -o "$2" "$1"
+  else
+    echo "error: failed to locate curl or wget"
+  fi
+}
+
+###############################################################################
+## usage: echo_comment <message>
+function echo_comment() {
+  if [ -z "$IS_QUIET" ]; then
+    echo "$@"
+  fi
+}
+
+###############################################################################
+## Ensure that a command is on the PATH. If missing, then give
+## advice on possible resolutions and exit.
+## usage: check_command <command-name> <required|recommended> [<msg>]
+function check_command() {
+  local cmd="$1"
+  local requirement="$2"
+  local msg="$3"
+  [ -z "$msg" ] && msg="Failed to locate command \"$cmd\". Please install it (and set the PATH appropriately)."
+
+  cmdpath=$(which $cmd)
+  if [ -z "$cmdpath" ]; then
+    echo "$msg"
+    show_command "$cmd" "It is possible that you have already installed \"$cmd\" in a non-standard location. If so, please update the PATH appropriately. Possible matches were found in:"
+    if [ "$requirement" = "required" ]; then
+      exit 3
+    fi
+  fi
+}
+
+###############################################################################
+## Show a list of possible locations where the command can be found
+## usage: show_command <command-name> [<msg>]
+function show_command() {
+    local cmd="$1"
+    local msg="$2"
+    local is_first=1
+    for altdir in \
+      /Applications/MAMP/Library/bin \
+      /Applications/MAMP/bin/php/php*/bin \
+      /{usr,opt}{,/local}/bin \
+      /{usr,opt}{,/local}/*/bin \
+      /{usr,opt}{,/local}/lib/*/bin
+    do
+      if [ -f "$altdir/$cmd" ]; then
+        if [ -n "$is_first" ]; then
+          echo $msg
+          is_first=
+        fi
+        echo " * $altdir"
+      fi
+    done
+}
+
+###############################################################################
+## Debian.org's NodeJS package uses a non-standard name for the node binary.
+## If necessary, setup an alias for the standard name.
+function nodejs_debian_workaround() {
+  if which nodejs >> /dev/null ; then
+    if ! which node >> /dev/null ; then
+      echo "[[NodeJS binary appears to be misnamed. Creating 'node' alias.]]"
+      ln -s "$(which nodejs)" "$BINDIR/node"
+    fi
+  fi
+}
+
+###############################################################################
+## Check if a PHP extension is enabled
+## usage: check_php_ext <command-name> <required|recommended> [<msg>]
+##
+## Note: There's not much harm in calling check_php_ext for more requirements,
+## but bear in mind that this only handles requirements for buildkit CLI.
+## For civicrm-core runtime, the app should have its own checks.
+function check_php_ext() {
+  local ext="$1"
+  local requirement="$2"
+  local msg="$3"
+
+  if [ -z "$msg" -a "$requirement" = "required" ]; then
+    msg="ERROR: Failed to find required PHP extension \"$ext\"."
+  elif [ -z "$msg" -a "$requirement" = "recommended" ]; then
+    msg="WARNING: Failed to find recommended PHP extension \"$ext\"."
+  fi
+
+  if php -r 'exit((int)in_array("'$ext'", get_loaded_extensions()));' ; then
+    echo "$msg"
+
+    if [ "$requirement" = "required" ]; then
+      echo ""
+      if [ `uname` = "Darwin" ]; then
+        echo "TIP: In OS X, it is common to install an alternative PHP bundle, such as MAMP or XAMPP, which provides more extensions by default."
+        show_command php "TIP: You may wish to configure a PATH to choose a different version of PHP. The following versions were found automatically:"
+      fi
+      if [ `uname` = "Linux" ]; then
+        echo "TIP: In some systems, the PHP version used in CLI and web are different. Extensions should be active in both."
+      fi
+      exit 4
+    fi
+  fi
+}
+
+###############################################################################
+## Prompt user for confirmation
+## (In automated scripts or blank response, use default)
+##
+## usage: cvutil_confirm <message> <interactive-default> <script-default>
+## example: cvutil_confirm "Are you sure? [Y/n] " y y
+function cvutil_confirm() {
+  local msg="$1"
+  local i_default="$2"
+  local s_default="$3"
+  if tty -s ; then
+    echo -n "$msg"
+    read _cvutil_confirm
+    if [ "x$_cvutil_confirm" == "x" ]; then
+      _cvutil_confirm="$i_default"
+    fi
+  else
+    echo "${msg}${s_default}"
+    _cvutil_confirm="$s_default"
+  fi
+  case "$_cvutil_confirm" in
+    y|Y|1)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+###############################################################################
+## Determine the function to handle system package installation
+function get_system_installer() {
+  if [ -n "$DISTRIB_CODENAME" ]; then
+    true
+  elif which lsb_release >/dev/null; then
+    # Debian doesn't ship with /etc/lsb-release. See
+    # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=444678
+    DISTRIB_CODENAME=$(lsb_release -cs)
+  elif [ -f "/etc/lsb-release" ]; then
+    source /etc/lsb-release
+  fi
+  case "$DISTRIB_CODENAME" in
+    precise|trusty|jessie)
+      echo "do_system_$DISTRIB_CODENAME"
+      ;;
+    *)
+      echo do_system_unknown
+      ;;
+  esac
+}
+
+###############################################################################
+function do_system_precise() {
+  set -e
+    PACKAGES="acl git wget unzip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs ruby rake"
+    echo "Detected \"Ubuntu Precise 12.04\"."
+    echo ""
+    echo "Recommended packages: $PACKAGES"
+    echo ""
+    if cvutil_confirm "Run automated installation? [Y/n] " y y; then
+      curl -sL https://deb.nodesource.com/setup_0.12 | sudo -E bash -
+      sudo apt-get -y install $PACKAGES
+      sudo a2enmod rewrite
+      sudo apache2ctl restart
+    else
+      echo "Aborted" 1>&2
+      exit 1
+    fi
+  set +e
+}
+
+###############################################################################
+function do_system_trusty() {
+  set -e
+    PACKAGES="acl git wget unzip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs-legacy npm ruby rake"
+    echo "Detected \"Ubuntu Trusty 14.04\"."
+    echo ""
+    echo "Recommended packages: $PACKAGES"
+    echo ""
+    if cvutil_confirm "Run automated installation? [Y/n] " y y; then
+      sudo apt-get update
+      sudo apt-get -y install $PACKAGES
+      sudo php5enmod mcrypt
+      sudo php5enmod imap
+      sudo a2enmod rewrite
+      sudo apache2ctl restart
+    else
+      echo "Aborted" 1>&2
+      exit 1
+    fi
+  set +e
+}
+
+###############################################################################
+function do_system_jessie() {
+  set -e
+    PACKAGES="acl git wget unzip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs-legacy npm ruby rake"
+    echo "Detected \"Debian Jessie\"."
+    echo ""
+    echo "Recommended packages: $PACKAGES"
+    echo ""
+    if cvutil_confirm "Run automated installation? [Y/n] " y y; then
+      sudo apt-get update
+      sudo apt-get -y install $PACKAGES
+      sudo php5enmod mcrypt
+      sudo php5enmod imap
+      sudo a2enmod rewrite
+      sudo apache2ctl restart
+    else
+      echo "Aborted" 1>&2
+      exit 1
+    fi
+  set +e
+}
+
+###############################################################################
+function do_system_unknown() {
+  echo "ERROR: Could not identify the required system packages."
+  echo ""
+  echo "If you want to add support for a new system, update 'get_system_installer()'"
+  echo "and add a new 'do_system_*()' function."
+  echo ""
+  echo "If you are running Debian, install lsb-release package."
+  exit 1
+}
+
+##################################################
+## Perform system installation (if requested)
+if [ -n "$IS_FULL" ]; then
+  SYSTEM_FUNC=$(get_system_installer)
+  if [[ $SYSTEM_FUNC =~ ^[a-zA-Z0-9_]+$ ]]; then
+    $SYSTEM_FUNC
+  else
+    echo "ERROR: Malformed system function: $SYSTEM_FUNC"
+    exit 2
+  fi
+
+  if [ ! -f "$PRJDIR/composer.json" ]; then
+    set -e
+      echo "[[ Clone civicrm-buildkit to $PRJDIR ]]"
+      git clone "https://github.com/civicrm/civicrm-buildkit.git" "$PRJDIR"
+    set +e
+  fi
+fi
 
 ##################################################
 ## Validation
@@ -120,6 +336,20 @@ check_command git required
 check_command tar required
 check_command bzip2 required
 check_command gzip required
+
+check_php_ext Phar required
+check_php_ext SimpleXML required
+check_php_ext SPL required
+check_php_ext curl required
+check_php_ext date required
+check_php_ext json required
+check_php_ext libxml required
+check_php_ext mcrypt required
+check_php_ext pcre required
+check_php_ext pdo_mysql required
+check_php_ext xml required
+
+nodejs_debian_workaround
 
 if [ ! -d "$TMPDIR" ]; then
   mkdir -p "$TMPDIR"
@@ -257,6 +487,18 @@ set +e
 ##
 ## Note: Non-fatal recommendations come at the end so that they appear as
 ## the last output (which is most likely to be read).
+
+check_php_ext bcmath recommended
+check_php_ext gd recommended
+check_php_ext gettext recommended
+check_php_ext hash recommended
+check_php_ext imap recommended
+check_php_ext intl recommended
+check_php_ext mbstring recommended
+check_php_ext mysql recommended
+check_php_ext openssl recommended
+check_php_ext session recommended
+check_php_ext zip recommended
 
 check_command node recommended "WARNING: Failed to locate command \"node\". NodeJS (http://nodejs.org/) is required for development of CiviCRM v4.6+."
 check_command npm recommended "WARNING: Failed to locate command \"npm\". NodeJS (http://nodejs.org/) is required for development of CiviCRM v4.6+."

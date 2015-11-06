@@ -9,7 +9,7 @@
 $rules = array();
 $rules[] = array(
   'triggers' => serialize(array('login' => 'login')),
-  'roles' => serialize(array(55120974 => 55120974)),
+  'roles' => serialize(array()),
   'pages_type' => 0,
   'pages' => '',
   'destination_type' => 0,
@@ -25,16 +25,6 @@ $rules[] = array(
   'destination' => '<front>',
   'weight' => 0,
 );
-$rules[] = array(
-  'triggers' => serialize(array('login' => 'login')),
-  'roles' => serialize(array(17087012 => 17087012, 57573969 => 57573969)),
-  'pages_type' => 0,
-  'pages' => '',
-  'destination_type' => 0,
-  'destination' => 'dashboard',
-  'weight' => 0,
-);
-
 
 foreach ($rules as $rule) {
   if (FALSE === drupal_write_record('login_destination', $rule)) {
