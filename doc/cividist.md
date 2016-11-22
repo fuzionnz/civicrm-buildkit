@@ -33,6 +33,9 @@ git remote add myfork https://github.com/myfork/civicrm-joomla.git
 
 cd build/dist/src/Wordpress
 git remote add myfork https://github.com/myfork/civicrm-wordpress.git
+
+cd build/dist/src/backdrop
+git remote add myfork https://github.com/myfork/civicrm-backdrop.git
 ```
 
 ## Setup: Permissions
