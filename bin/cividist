@@ -1,8 +1,16 @@
 #!/bin/bash
 set -e
 
+function absdirname() {
+  pushd $(dirname $0) >> /dev/null
+    pwd
+  popd >> /dev/null
+}
+
 ###############################################################################
 ## Variables and constants
+BINDIR=$(absdirname "$0")
+PRJDIR=$(dirname "$BINDIR")
 MAX_AGE=${MAX_AGE:-14}
 MAX_REFS=${MAX_REFS:-10000}
 GIT_REMOTE=${GIT_REMOTE:-origin}
@@ -62,7 +70,7 @@ function cividist_validate() {
 ## Put the output files in $BY_HASH and $BY_DATE.
 function cividist_build() {
   for REF in "$@" ; do
-    git scan foreach -c "pwd; git checkout . ; git clean -f -d"
+    git scan foreach -c "pwd; rm CRM/*/DAO/*.php CRM/*/*/DAO/*.php -f ; git checkout . ; git clean -f -d"
     if givi checkout $REF; then
       ## FIXME: Should compute separate hashes for each combo of (civi-ver,cms,cms-major-ver)
       local hash=$(git scan hash)${HASH_SUFFIX}
@@ -121,6 +129,7 @@ function _cividist_build_hash() {
         regmv '\.zip$' "-${FILE_SUFFIX}.zip"
         regmv '\.tgz$' "-${FILE_SUFFIX}.tgz"
         regmv '\.tar\.gz$' "-${FILE_SUFFIX}.tar.gz"
+        regmv '\.json$' "-${FILE_SUFFIX}.json"
         echo "ReadmeName README.html" > .htaccess
         _cividist_build_readme > README.html
       popd >> /dev/null
@@ -196,6 +205,19 @@ function cividist_prune() {
 }
 
 ###############################################################################
+## cividist_aggregate <base-url>
+function cividist_aggregate() {
+  pushd "$BY_DATE"
+    find -mindepth 1 -maxdepth 1 -type d | while read DATEDIR ; do
+      pushd "$DATEDIR" >> /dev/null
+        local DATE=$(basename "$PWD")
+        find -maxdepth 2 -name 'civicrm-*.json' | php "$PRJDIR/src/cividist-aggregate-json.php" "$1/by-date/$DATE" > summary.json
+      popd >> /dev/null
+    done
+  popd >> /dev/null
+}
+
+###############################################################################
 function cividist_help() {
   echo "Maintain a rotating list of nightly tarballs."
   echo
@@ -215,6 +237,9 @@ function cividist_help() {
   echo
   echo "Remove any old/orphaned tarballs"
   echo "  usage: $(basename $0) prune"
+  echo
+  echo "Aggregate any JSON summaries about releases"
+  echo "  usage: $(basename $0) aggregate <base-url>"
   echo
   echo "See also: $DOCURL"
 }
@@ -300,6 +325,9 @@ pushd $SRC >> /dev/null
       ;;
     prune)
       cividist_prune
+      ;;
+    aggregate)
+      cividist_aggregate "$2"
       ;;
     *)
       cividist_help

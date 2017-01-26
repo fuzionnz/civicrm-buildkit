@@ -18,14 +18,14 @@ PRJDIR=$(dirname "$BINDIR")
 TMPDIR="$PRJDIR/app/tmp"
 LOCKFILE="$TMPDIR/civi-download-tools.lock"
 LOCKTIMEOUT=90
-CIVIXURL="https://download.civicrm.org/civix/civix.phar-2016-03-08-3946d92d"
-CVURL="https://download.civicrm.org/cv/cv.phar-b6e28d1"
+CIVIXURL="https://download.civicrm.org/civix/civix.phar-2017-01-02-dd122605"
+CVURL="https://download.civicrm.org/cv/cv.phar-2017-01-24-bd4b7b8a"
 HUB_VERSION="2.2.3"
 DRUSH8URL=http://files.drush.org/drush.phar
 PHPUNITURL=https://phar.phpunit.de/phpunit-4.8.21.phar
-WPCLIURL=https://github.com/wp-cli/wp-cli/releases/download/v0.23.0/wp-cli-0.23.0.phar
-GITSCANURL="https://download.civicrm.org/git-scan/git-scan.phar-2016-06-01-51baeef5"
-AMPURL="https://download.civicrm.org/amp/amp.phar-2016-07-15-cc791dfe"
+WPCLIURL=https://github.com/wp-cli/wp-cli/releases/download/v0.24.1/wp-cli-0.24.1.phar
+GITSCANURL="https://download.civicrm.org/git-scan/git-scan.phar-2017-01-24-8372d02b"
+AMPURL="https://download.civicrm.org/amp/amp.phar-2016-10-12-41c6b749"
 CIVISTRINGSURL="https://download.civicrm.org/civistrings/civistrings.phar-2016-03-10-df547ff9"
 JOOMLAURL="https://download.civicrm.org/joomlatools-console/joomla.phar-2016-07-15-d2b7d23a"
 IS_QUIET=
@@ -301,7 +301,7 @@ function get_system_installer() {
 ###############################################################################
 function do_system_precise() {
   set -e
-    PACKAGES="acl git wget unzip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs"
+    PACKAGES="acl git wget unzip zip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs"
     echo "Detected \"Ubuntu Precise 12.04\"."
     echo ""
     echo "Recommended packages: $PACKAGES"
@@ -321,7 +321,7 @@ function do_system_precise() {
 ###############################################################################
 function do_system_trusty() {
   set -e
-    PACKAGES="acl git wget unzip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs-legacy npm"
+    PACKAGES="acl git wget unzip zip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs-legacy npm"
     echo "Detected \"Ubuntu Trusty 14.04\"."
     echo ""
     echo "Recommended packages: $PACKAGES"
@@ -343,7 +343,7 @@ function do_system_trusty() {
 ###############################################################################
 function do_system_xenial() {
   set -e
-    PACKAGES="acl git wget unzip mysql-server mysql-client php7.0-cli php7.0-imap php7.0-ldap php7.0-curl php7.0-mysql php7.0-intl php7.0-gd php7.0-mcrypt php7.0-bcmath php7.0-mbstring php7.0-zip php7.0-xml apache2 libapache2-mod-php7.0 nodejs-legacy npm"
+    PACKAGES="acl git wget unzip zip mysql-server mysql-client php7.0-cli php7.0-imap php7.0-ldap php7.0-curl php7.0-mysql php7.0-intl php7.0-gd php7.0-mcrypt php7.0-bcmath php7.0-mbstring php7.0-soap php7.0-zip php7.0-xml apache2 libapache2-mod-php7.0 nodejs-legacy npm"
     echo "Detected \"Ubuntu Xenial 16.04\"."
     echo ""
     echo "Task: $PACKAGES"
@@ -370,7 +370,7 @@ function do_system_xenial() {
 ###############################################################################
 function do_system_jessie() {
   set -e
-    PACKAGES="acl git wget unzip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs-legacy npm"
+    PACKAGES="acl git wget unzip zip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs-legacy npm"
     echo "Detected \"Debian Jessie\"."
     echo ""
     echo "Recommended packages: $PACKAGES"
@@ -498,7 +498,7 @@ pushd $PRJDIR >> /dev/null
       npm install
       cat package.json | php -r 'echo md5(file_get_contents("php://stdin"));' > "$TMPDIR/package-data.md5"
     fi
-    for f in node_modules/bower/bin/bower node_modules/karma/bin/karma node_modules/jshint/bin/jshint node_modules/karma-phantomjs-launcher/node_modules/phantomjs/bin/phantomjs ; do
+    for f in node_modules/bower/bin/bower node_modules/karma/bin/karma node_modules/jshint/bin/jshint node_modules/karma-phantomjs-launcher/node_modules/phantomjs/bin/phantomjs node_modules/protractor/bin/protractor node_modules/protractor/node_modules/webdriver-manager/bin/webdriver-manager node_modules/grunt-cli/bin/grunt ; do
       pushd "$PRJDIR/bin" >> /dev/null
         toolname=$(basename $f)
         if [ -f "../$f" -a ! -L "$toolname" ]; then
@@ -577,9 +577,13 @@ check_php_ext hash recommended
 check_php_ext imap recommended
 check_php_ext intl recommended
 check_php_ext mbstring recommended
-check_php_ext mysql recommended
+if php -r 'exit(version_compare(PHP_VERSION, 7.0, "<") ? 0 : 1);' ; then
+  check_php_ext mysql recommended  ## In case you try to install older Civi versions (<= 4.7.11)
+fi
+check_php_ext mysqli recommended   ## >= 4.7.12
 check_php_ext openssl recommended
 check_php_ext session recommended
+check_php_ext soap recommended
 check_php_ext zip recommended
 
 check_command node recommended "WARNING: Failed to locate command \"node\". NodeJS (http://nodejs.org/) is required for development of CiviCRM v4.6+."
