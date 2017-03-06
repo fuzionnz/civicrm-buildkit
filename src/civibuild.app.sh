@@ -34,6 +34,8 @@ Description: Download and/or install the application
   --demo-pass         Password for the CMS's demo user
   --demo-email        Email of the CMS's demo user
 
+  --no-sample-data    Instead of loading the sample dataset, load the minimalist dataset
+
   --force             If necessary, destroy pre-existing files/directories/DBs
                       (For "reinstall", "--force" is implicit.)
 
@@ -61,6 +63,9 @@ Description: Create or restore a snapshot of the CMS+CRM DBs
   --no-cms               Skip resetting the CMS DB [Optional]
   --civi-sql <sql-file>  The path to a SQL backup of the CiviCRM DB [Optional]
   --no-civi              Skip resetting the CiviCRM DB [Optional]
+
+Syntax: $APP cache-warmup
+Description: Proactively update git cache
 
 Syntax: $APP clone-create <build-name>[/<ms-id>] [options] [snapshot-options]
 Syntax: $APP clone-show <build-name>[/<ms-id>] [options]

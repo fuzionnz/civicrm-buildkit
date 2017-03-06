@@ -48,11 +48,10 @@ function split_files() {
   touch "$phpfiles" "$jsfiles" "$skipfiles"
 
   while read file; do
-    absfile=$(absdirname "$file")/$(basename "$file")
     if [ ! -e "$file" ]; then
       echo "$file" >> "$skipfiles"
 
-    elif [[ "$absfile" =~ (/DAO/|/examples/|/tools/) ]]; then
+    elif [[ "$file" =~ (/?DAO/|/?examples/|/?tools/) ]]; then
       echo "$file" >> "$skipfiles"
 
     elif [[ "$file" =~ Trait\.php$ ]]; then
@@ -133,7 +132,10 @@ fi
 ## Capture the list of files
 TMP=$(mktempdir)
 if [ -z "$1" ]; then
-  if [ ! -d .git ]; then
+  GITROOT=$(git rev-parse --show-toplevel)
+  if [ -d "$GITROOT" ]; then
+    cd "$GITROOT"
+  else
     echo "ERROR: Cannot check for uncommitted changes in git. Please change to the git root."
     echo
     show_help
