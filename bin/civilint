@@ -51,7 +51,7 @@ function split_files() {
     if [ ! -e "$file" ]; then
       echo "$file" >> "$skipfiles"
 
-    elif [[ "$file" =~ (/?DAO/|/?examples/|/?tools/) ]]; then
+    elif [[ "$file" =~ (/?examples/|/?tools/) ]]; then
       echo "$file" >> "$skipfiles"
 
     elif [[ "$file" =~ Trait\.php$ ]]; then
@@ -61,6 +61,9 @@ function split_files() {
         echo "WARNING: Cannot check style on $file with PHP 5.3. Consider upgrading PHP."
         echo "$file" >> "$skipfiles"
       fi
+
+    elif [[ "$file" =~ (/SchemaStructure\.php|langs\.php) ]]; then
+      echo "$file" >> "$skipfiles"
 
     elif [[ "$file" =~ \.php$ ]]; then
       echo "$file" >> "$phpfiles"
@@ -172,7 +175,11 @@ if grep -q . "$TMP/php.txt" ; then
   fi
 
   echo "===============================[ phpcs  ]==============================="
-  if [ -n "$CHECKSTYLE_OUT" ]; then
+  if [ $PHPL_EXIT != 0 ]; then
+    echo "Skipping style check. There are files with hard syntax errors."
+    ## In the past, had a bug where phpcs runs into infinite-loop checking a malformed file.
+    PHPCS_EXIT=1
+  elif [ -n "$CHECKSTYLE_OUT" ]; then
     xargs $BINDIR/phpcs --standard="$PHPCS_STD" --report=checkstyle < "$TMP/php.txt" > "$CHECKSTYLE_OUT/checkstyle-phpcs.xml"
     PHPCS_EXIT=$?
   else

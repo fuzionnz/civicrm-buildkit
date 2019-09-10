@@ -50,6 +50,9 @@ function civibuild_alias_resolve() {
     dc47)        SITE_TYPE=drupal-clean     ; CIVI_VERSION=master    ; CMS_TITLE="CiviCRM 4.7 Clean on Drupal"       ;;
     dcmaster)    SITE_TYPE=drupal-clean     ; CIVI_VERSION=master    ; CMS_TITLE="CiviCRM Clean Sandbox on Drupal"   ;;
 
+    dcase)       SITE_TYPE=drupal-case      ; CIVI_VERSION=master    ; CMS_TITLE="CiviCase Sandbox on Drupal"        ;;
+    wpcase)      SITE_TYPE=wp-case          ; CIVI_VERSION=master    ; CMS_TITLE="CiviCase Sandbox on WordPress"     ;;
+
     wp43)        SITE_TYPE=wp-demo          ; CIVI_VERSION=4.3       ; CMS_TITLE="CiviCRM 4.3 Demo on WordPress"     ;;
     wp44)        SITE_TYPE=wp-demo          ; CIVI_VERSION=4.4       ; CMS_TITLE="CiviCRM 4.4 Demo on WordPress"     ; VOL_VERSION=4.4-1.x    ;;
     wp45)        SITE_TYPE=wp-demo          ; CIVI_VERSION=4.5       ; CMS_TITLE="CiviCRM 4.5 Demo on WordPress"     ; VOL_VERSION=v4.5-1.4.0 ;;
@@ -71,17 +74,12 @@ function civibuild_alias_resolve() {
     bmaster)     SITE_TYPE=backdrop-demo    ; CIVI_VERSION=master    ; CMS_TITLE="CiviCRM Sandbox on Backdrop"       ;;
     b-master)    SITE_TYPE=backdrop-demo    ; CIVI_VERSION=master    ; CMS_TITLE="CiviCRM Sandbox on Backdrop"       ;;
 
-    hr13)        SITE_TYPE=hrdemo           ; CIVI_VERSION=4.5       ; CMS_TITLE="CiviHR 1.3 Demo"                   ; HR_VERSION=1.3        ;;
-    hr14)        SITE_TYPE=hrdemo           ; CIVI_VERSION=4.5       ; CMS_TITLE="CiviHR 1.4 Demo"                   ; HR_VERSION=1.4        ;;
-    hr15)        SITE_TYPE=hr15             ; CIVI_VERSION=4.5       ; CMS_TITLE="CiviHR 1.5 Demo"                   ; HR_VERSION=1.5     ;;
-    hr16)        SITE_TYPE=hr16             ; CIVI_VERSION=4.7.9     ; CMS_TITLE="CiviHR 1.6 Demo"                   ; HR_VERSION=master    ;
-NO_SAMPLE_DATA=1       ;;
-    hrmaster)    SITE_TYPE=hr15             ; CIVI_VERSION=master    ; CMS_TITLE="CiviHR Sandbox"                    ; HR_VERSION=master     ;;
+    civihr)      SITE_TYPE=civihr           ; CIVI_VERSION=5.3.1     ; CMS_TITLE="CiviHR Sandbox"                    ; NO_SAMPLE_DATA=1       ;;
 
     bempty)      SITE_TYPE=backdrop-empty   ; CIVI_VERSION=none      ; CMS_TITLE="Backdrop Sandbox"                  ;;
     dempty)      SITE_TYPE=drupal-empty     ; CIVI_VERSION=none      ; CMS_TITLE="Drupal 7 Sandbox"                  ;;
     d7-empty)    SITE_TYPE=drupal-empty     ; CIVI_VERSION=none      ; CMS_TITLE="Drupal 7 Sandbox"                  ;;
-    # TODO: d8-empty)    SITE_TYPE=drupal-empty     ; CIVI_VERSION=none      ; CMS_TITLE="Drupal 8 Sandbox"                  ;;
+    d8-empty)    SITE_TYPE=drupal8-empty    ; CIVI_VERSION=none      ; CMS_TITLE="Drupal 8 Sandbox"                  ;;
     jempty)      SITE_TYPE=joomla-empty     ; CIVI_VERSION=none      ; CMS_TITLE="Joomla Sandbox"                    ;;
     wpempty)     SITE_TYPE=wp-empty         ; CIVI_VERSION=none      ; CMS_TITLE="WordPress Sandbox"                 ;;
     wp-empty)    SITE_TYPE=wp-empty         ; CIVI_VERSION=none      ; CMS_TITLE="WordPress Sandbox"                 ;;
@@ -93,6 +91,6 @@ NO_SAMPLE_DATA=1       ;;
   esac
 
 #  if [ -n "$known" -a "%AUTO%" = "$URL_TEMPLATE" ]; then
-#    URL_TEMPLATE='http://%SITE_NAME%.dev'
+#    URL_TEMPLATE='http://%SITE_NAME%.test'
 #  fi
 }

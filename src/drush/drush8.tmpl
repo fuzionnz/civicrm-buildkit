@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+BINDIR=$(dirname $0)
+PRJDIR=$(dirname "$BINDIR")
+[ -z "$CIVIBUILD_HOME" ] && CACHE_PREFIX="$PRJDIR/app/tmp/drush" || CACHE_PREFIX="$CIVIBUILD_HOME/.civibuild/drush"
+
+export CACHE_PREFIX
+[ ! -d "$CACHE_PREFIX" ] && mkdir -p "$CACHE_PREFIX"
+if [ "$PWD" == "$BINDIR" ]; then
+  echo "Error: Cannot run drush from the bin dir. Please navigate to a site dir." >&2
+  exit 1
+fi
+exec "$PRJDIR/extern/drush8.phar" --include="$PRJDIR/extern/drush-lib" "$@"

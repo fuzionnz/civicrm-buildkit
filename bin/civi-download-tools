@@ -15,19 +15,10 @@ function absdirname() {
 
 BINDIR=$(absdirname "$0")
 PRJDIR=$(dirname "$BINDIR")
-TMPDIR="$PRJDIR/app/tmp"
+[ -z "$CIVIBUILD_HOME" ] && TMPDIR="$PRJDIR/app/tmp" || TMPDIR="$CIVIBUILD_HOME/.civibuild/tmp"
 LOCKFILE="$TMPDIR/civi-download-tools.lock"
 LOCKTIMEOUT=90
-CIVIXURL="https://download.civicrm.org/civix/civix.phar-2017-02-15-49edf119"
-CVURL="https://download.civicrm.org/cv/cv.phar-2017-02-24-0d16b86d"
-HUB_VERSION="2.2.3"
-DRUSH8URL=http://files.drush.org/drush.phar
-PHPUNITURL=https://phar.phpunit.de/phpunit-4.8.21.phar
-WPCLIURL=https://github.com/wp-cli/wp-cli/releases/download/v0.24.1/wp-cli-0.24.1.phar
-GITSCANURL="https://download.civicrm.org/git-scan/git-scan.phar-2017-01-24-8372d02b"
-AMPURL="https://download.civicrm.org/amp/amp.phar-2016-10-12-41c6b749"
-CIVISTRINGSURL="https://download.civicrm.org/civistrings/civistrings.phar-2016-03-10-df547ff9"
-JOOMLAURL="https://download.civicrm.org/joomlatools-console/joomla.phar-2016-07-15-d2b7d23a"
+HUB_VERSION="2.2.9"
 IS_QUIET=
 IS_FORCE=
 IS_FULL=
@@ -62,7 +53,7 @@ while [ -n "$1" ] ; do
           PRJDIR=$(pwd)
         popd >> /dev/null
         BINDIR="$PRJDIR/bin"
-        TMPDIR="$PRJDIR/app/tmp"
+        [ -z "$CIVIBUILD_HOME" ] && TMPDIR="$PRJDIR/app/tmp" || TMPDIR="$CIVIBUILD_HOME/.civibuild/tmp"
         LOCKFILE="$TMPDIR/civi-download-tools.lock"
       set +e
       shift
@@ -88,34 +79,60 @@ function download_url() {
   fi
 }
 
-###############################################################################
-## usage: download_program_if_changed <url> <out-file> <flag-file>
-function download_program_if_changed() {
-  local url="$1"
-  local binfile="$2"
-  local flagfile="$3"
-  local progname=$(basename $binfile)
-
-  mkdir -p $(dirname "$flagfile")
-  touch "$flagfile"
-  if [ -z "$IS_FORCE" -a -e "$binfile" -a "$(cat $flagfile)" == "$url" ]; then
-    echo_comment "[[$progname binary ($binfile) already exists. Skipping.]]"
-  else
-    echo "[[Install $progname]]"
-    if [ -L "$binfile" ]; then
-      rm -f "$binfile"
-    fi
-    download_url "$url" "$binfile"
-    chmod +x "$binfile"
-    echo "$url" > "$flagfile"
-  fi
-}
 
 ###############################################################################
 ## usage: echo_comment <message>
 function echo_comment() {
   if [ -z "$IS_QUIET" ]; then
     echo "$@"
+  fi
+}
+
+###############################################################################
+## usage: do_php_mysql_warning
+function do_php_mysql_warning() {
+  echo "Warning: This system will not support the php-mysql extension."
+  echo ""
+  echo "This means you will be unable to install CiviCRM version 4.7.11 or earlier (including any 4.6.x version)."
+  echo "For further details see: https://civicrm.org/blog/totten/psa-please-verify-php-extension-mysqli and https://issues.civicrm.org/jira/browse/CRM-17789"
+}
+
+###############################################################################
+## Make a symlink... gently.
+## usage: make_link <workdir> <from> <to>
+function make_link() {
+  local workdir="$1"
+  local from="$2"
+  local to="$3"
+  pushd "$workdir" >> /dev/null
+    if [ -L "$to" ]; then
+      local oldLink=$(readlink "$to")
+      if [ -n "$oldLink" -a "$oldLink" != "$from" ]; then
+        rm -f "$to"
+      fi
+    fi
+    if [ ! -e "$to" ]; then
+      echo_comment "[[Create symlink $to in $workdir]]"
+      ln -s "$from" "$to"
+    fi
+    ## FIXME: ideally, provide a notice if the file-exists and is *not* the expected link
+  popd >> /dev/null
+}
+
+###############################################################################
+## Ensure that the current user has permission to write to a given folder.
+##
+## This addresses the issue where somone has erroneously executed `composer`
+## or `npm` or `bower` or somesuch as `root`.
+## usage: check_path_ownership <find-args>"
+function check_datafile_ownership() {
+  local tgtuser=$(whoami)
+  local files=$( find "$@" ! -user $tgtuser 2>&1 )
+  if [ -n "$files" ]; then
+    echo "WARNING: The following data-files are not owned by your user, which may lead to permission issues. You may need to delete or chown them." >&2
+    echo "$ find "$@" ! -user $tgtuser"
+    echo "$files"
+    echo ""
   fi
 }
 
@@ -167,8 +184,8 @@ function show_command() {
 ## Debian.org's NodeJS package uses a non-standard name for the node binary.
 ## If necessary, setup an alias for the standard name.
 function nodejs_debian_workaround() {
-  if which nodejs >> /dev/null ; then
-    if ! which node >> /dev/null ; then
+  if which nodejs &> /dev/null ; then
+    if ! which node &> /dev/null ; then
       echo "[[NodeJS binary appears to be misnamed. Creating 'node' alias.]]"
       ln -s "$(which nodejs)" "$BINDIR/node"
     fi
@@ -289,7 +306,7 @@ function get_system_installer() {
     source /etc/lsb-release
   fi
   case "$DISTRIB_CODENAME" in
-    precise|trusty|jessie|xenial)
+    precise|trusty|jessie|stretch|buster|xenial|yakkety|zesty|artful|bionic|cosmic|disco)
       echo "do_system_$DISTRIB_CODENAME"
       ;;
     *)
@@ -321,7 +338,7 @@ function do_system_precise() {
 ###############################################################################
 function do_system_trusty() {
   set -e
-    PACKAGES="acl git wget unzip zip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs-legacy npm"
+    PACKAGES="acl curl git wget unzip zip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5"
     echo "Detected \"Ubuntu Trusty 14.04\"."
     echo ""
     echo "Recommended packages: $PACKAGES"
@@ -329,6 +346,8 @@ function do_system_trusty() {
     if cvutil_confirm "Run automated installation? [Y/n] " y y; then
       sudo apt-get update
       sudo apt-get -y install $PACKAGES
+      sudo curl -sL https://deb.nodesource.com/setup_5.x | sudo -E bash -
+      sudo apt-get install -y nodejs
       sudo php5enmod mcrypt
       sudo php5enmod imap
       sudo a2enmod rewrite
@@ -344,11 +363,12 @@ function do_system_trusty() {
 function do_system_xenial() {
   set -e
     PACKAGES="acl git wget unzip zip mysql-server mysql-client php7.0-cli php7.0-imap php7.0-ldap php7.0-curl php7.0-mysql php7.0-intl php7.0-gd php7.0-mcrypt php7.0-bcmath php7.0-mbstring php7.0-soap php7.0-zip php7.0-xml apache2 libapache2-mod-php7.0 nodejs-legacy npm"
-    echo "Detected \"Ubuntu Xenial 16.04\"."
+    UBUNTU_VERSION=$(lsb_release -ds)
+    echo "Detected $UBUNTU_VERSION."
     echo ""
     echo "Task: $PACKAGES"
     echo ""
-    echo "Warning: This system will not support php-mysql extension"
+    do_php_mysql_warning
     echo ""
     if cvutil_confirm "Run automated installation? [Y/n] " y y; then
       sudo apt-get update
@@ -368,6 +388,102 @@ function do_system_xenial() {
 }
 
 ###############################################################################
+function do_system_yakkety() {
+  do_system_xenial
+}
+
+###############################################################################
+function do_system_zesty() {
+  do_system_xenial
+}
+
+###############################################################################
+## If this shared function doesn't work, don't add conditionals - copy/paste into a new function.
+function do_system_artful() {
+  set -e
+    PACKAGES="acl git wget unzip zip mysql-server mysql-client php7.1-cli php7.1-imap php7.1-ldap php7.1-curl php7.1-mysql php7.1-intl php7.1-gd php7.1-mcrypt php7.1-bcmath php7.1-mbstring php7.1-soap php7.1-zip php7.1-xml apache2 libapache2-mod-php7.1 nodejs npm"
+    UBUNTU_VERSION=$(lsb_release -ds)
+    echo "Detected $UBUNTU_VERSION."
+    echo ""
+    echo "Task: $PACKAGES"
+    echo ""
+    do_php_mysql_warning
+    echo ""
+    if cvutil_confirm "Run automated installation? [Y/n] " y y; then
+      sudo apt-get update
+      sudo apt-get -y install $PACKAGES
+      sudo phpenmod bcmath
+      sudo phpenmod curl
+      sudo phpenmod imap
+      sudo phpenmod mcrypt
+      sudo phpenmod xml
+      sudo a2enmod rewrite
+      sudo apache2ctl restart
+    else
+      echo "Aborted" 1>&2
+      exit 1
+    fi
+  set +e
+}
+
+###############################################################################
+function do_system_bionic() {
+  set -e
+    PACKAGES="acl git wget unzip zip mysql-server mysql-client php7.2-cli php7.2-imap php7.2-ldap php7.2-curl php7.2-mysql php7.2-intl php7.2-gd php7.2-dev php7.2-bcmath php7.2-mbstring php7.2-soap php7.2-zip php7.2-xml apache2 libapache2-mod-php7.2 nodejs php-pear libmcrypt-dev libreadline-dev curl"
+    UBUNTU_VERSION=$(lsb_release -ds)
+    echo "Detected $UBUNTU_VERSION."
+    echo ""
+    echo "Task: $PACKAGES"
+    echo ""
+    do_php_mysql_warning
+    echo ""
+    if cvutil_confirm "Run automated installation? [Y/n] " y y; then
+      sudo curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash - # This runs sudo apt update so there's no point running it twice.
+      sudo apt-get -y install $PACKAGES
+      sudo phpenmod bcmath
+      sudo phpenmod curl
+      sudo phpenmod imap
+      sudo phpenmod xml
+      sudo a2enmod rewrite
+      sudo apache2ctl restart
+    else
+      echo "Aborted" 1>&2
+      exit 1
+    fi
+  set +e
+}
+
+function do_system_cosmic() {
+  do_system_bionic
+}
+
+function do_system_disco() {
+  set -e
+    PACKAGES="acl git wget unzip zip mysql-server mysql-client php7.2-cli php7.2-imap php7.2-ldap php7.2-curl php7.2-mysql php7.2-intl php7.2-gd php7.2-dev php7.2-bcmath php7.2-mbstring php7.2-soap php7.2-zip php7.2-xml apache2 libapache2-mod-php7.2 nodejs php-pear libmcrypt-dev libreadline-dev curl"
+    UBUNTU_VERSION=$(lsb_release -ds)
+    echo "Detected $UBUNTU_VERSION."
+    echo ""
+    echo "Task: $PACKAGES"
+    echo ""
+    do_php_mysql_warning
+    echo ""
+    if cvutil_confirm "Run automated installation? [Y/n] " y y; then
+      sudo curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash - # This runs sudo apt update so there's no point running it twice.
+      sudo apt-get -y install $PACKAGES
+      sudo phpenmod bcmath
+      sudo phpenmod curl
+      sudo phpenmod imap
+      sudo phpenmod xml
+      sudo a2enmod rewrite
+      sudo apache2ctl restart
+    else
+      echo "Aborted" 1>&2
+      exit 1
+    fi
+  set +e
+}
+
+###############################################################################
 function do_system_jessie() {
   set -e
     PACKAGES="acl git wget unzip zip mysql-server mysql-client php5-cli php5-imap php5-ldap php5-curl php5-mysql php5-intl php5-gd php5-mcrypt php-apc apache2 libapache2-mod-php5 nodejs-legacy npm"
@@ -376,7 +492,7 @@ function do_system_jessie() {
     echo "Recommended packages: $PACKAGES"
     echo ""
     if cvutil_confirm "Run automated installation? [Y/n] " y y; then
-      sudo apt-get update
+      wget -O- https://deb.nodesource.com/setup_8.x | sudo -E bash -
       sudo apt-get -y install $PACKAGES
       sudo php5enmod mcrypt
       sudo php5enmod imap
@@ -388,7 +504,49 @@ function do_system_jessie() {
     fi
   set +e
 }
+###############################################################################
+function do_system_stretch() {
+  set -e
+    PACKAGES="acl git wget unzip zip mysql-server mysql-client php-cli php-imap php-ldap php-curl php-mysql php-intl php-gd php-mcrypt php-apcu apache2 libapache2-mod-php php-bcmath php-mbstring php-soap php-zip"
+    echo "Detected \"Debian Stretch\"."
+    echo ""
+    echo "Installing nodejs Debian repository."
+    echo ""
+    echo "Recommended packages: $PACKAGES"
+    echo ""
+    if cvutil_confirm "Run automated installation? [Y/n] " y y; then
+      wget -O- https://deb.nodesource.com/setup_8.x | sudo -E bash -
+      sudo apt-get -y install $PACKAGES
+      sudo phpenmod mcrypt
+      sudo phpenmod imap
+      sudo a2enmod rewrite
+      sudo apache2ctl restart
+    else
+      echo "Aborted" 1>&2
+      exit 1
+    fi
+  set +e
+}
 
+###############################################################################
+function do_system_buster() {
+  set -e
+    PACKAGES="acl git wget unzip zip default-mysql-server default-mysql-client php-cli php-imap php-ldap php-curl php-mysql php-intl php-gd php-apcu apache2 libapache2-mod-php php-bcmath php-mbstring php-soap php-zip php-xml php-curl nodejs npm"
+    echo "Detected \"Debian Jessie\"."
+    echo ""
+    echo "Recommended packages: $PACKAGES"
+    echo ""
+    if cvutil_confirm "Run automated installation? [Y/n] " y y; then
+      sudo apt-get -y install $PACKAGES
+      sudo phpenmod imap
+      sudo a2enmod rewrite
+      sudo apache2ctl restart
+    else
+      echo "Aborted" 1>&2
+      exit 1
+    fi
+  set +e
+}
 ###############################################################################
 function do_system_unknown() {
   echo "ERROR: Could not identify the required system packages."
@@ -438,7 +596,6 @@ check_php_ext curl required
 check_php_ext date required
 check_php_ext json required
 check_php_ext libxml required
-check_php_ext mcrypt required
 check_php_ext pcre required
 check_php_ext pdo_mysql required
 check_php_ext xml required
@@ -468,6 +625,38 @@ fi
 ## Begin execution
 set -e
 pushd $PRJDIR >> /dev/null
+
+  ## Check that data folders/files are writeable. Since this is expensive, only do it on new systems.
+  if [ -z "$IS_QUIET" -o ! -d vendor -o ! -d node_modules ]; then
+    [ -n "$COMPOSER_CACHE_DIR" ] && check_datafile_ownership "$COMPOSER_CACHE_DIR" || check_datafile_ownership "$HOME/.composer"
+    [ -d "$HOME/.cache" ] && check_datafile_ownership "$HOME/.cache"
+    [ -d "$HOME/.npm" ] && check_datafile_ownership "$HOME/.npm"
+    [ -n "$AMPHOME" -a -d "$AMPHOME" ] && check_datafile_ownership "$AMPHOME"
+    [ -z "$AMPHOME" -a -d "$HOME/.amp/apache.d" ] && check_datafile_ownership "$HOME/.amp/apache.d"
+  fi
+
+  ## Cleanup previous PHAR downloads before composer-downloads-plugin takes a crack at it.
+  [ -f "$PRJDIR/extern/_phpunit4.txt" ] && rm -f "$PRJDIR/extern/phpunit4/phpunit4.phar" "$PRJDIR/extern/_phpunit4.txt"
+  [ -f "$PRJDIR/extern/_phpunit5.txt" ] && rm -f "$PRJDIR/extern/phpunit5/phpunit5.phar" "$PRJDIR/extern/_phpunit5.txt"
+  [ -f "$PRJDIR/extern/_phpunit6.txt" ] && rm -f "$PRJDIR/extern/phpunit6/phpunit6.phar" "$PRJDIR/extern/_phpunit6.txt"
+  [ -f "$PRJDIR/extern/amp.txt" ] && rm -f "$PRJDIR/bin/amp" "$PRJDIR/extern/amp.txt"
+  [ -f "$PRJDIR/extern/box.txt" ] && rm -f "$PRJDIR/bin/box" "$PRJDIR/extern/box.txt"
+  [ -f "$PRJDIR/extern/civistrings.txt" ] && rm -f "$PRJDIR/bin/civistrings" "$PRJDIR/extern/civistrings.txt"
+  [ -f "$PRJDIR/extern/civix.txt" ] && rm -f "$PRJDIR/bin/civix" "$PRJDIR/extern/civix.txt"
+  [ -f "$PRJDIR/extern/cv.txt" ] && rm -f "$PRJDIR/bin/cv" "$PRJDIR/extern/cv.txt"
+  [ -f "$PRJDIR/extern/drush8.txt" ] && rm -f "$PRJDIR/extern/drush8.phar" "$PRJDIR/extern/drush8.txt"
+  [ -f "$PRJDIR/extern/git-scan.txt" ] && rm -f "$PRJDIR/bin/git-scan" "$PRJDIR/extern/git-scan.txt"
+  [ -f "$PRJDIR/extern/wp-cli.txt" ] && rm -f "$PRJDIR/bin/wp" "$PRJDIR/extern/wp-cli.txt"
+  [ -f "$PRJDIR/extern/civici.txt" ] && rm -f  "$PRJDIR/bin/civici" "$PRJDIR/extern/civici.txt"
+  [ -f "$PRJDIR/extern/joomla.txt" ] && rm -f "$PRJDIR/bin/joomla" "$PRJDIR/extern/joomla.txt"
+  [ -f "$PRJDIR/extern/codecept-php5.txt" ] && rm -f "$PRJDIR/bin/_codecept-php5.phar" "$PRJDIR/extern/codecept-php5.txt"
+  [ -f "$PRJDIR/extern/codecept-php7.txt" ] && rm -f "$PRJDIR/bin/_codecept-php7.phar" "$PRJDIR/extern/codecept-php7.txt"
+  [ -f "$PRJDIR/extern/drush-lib-backdrop.txt" ] && rm -rf "$PRJDIR/extern/drush-lib/backdrop" "$PRJDIR/extern/drush-lib-backdrop.txt"
+
+  ## Cleanup misnamed files from past
+  [ -f "$PRJDIR/extern/phpunit4/phpunit6.phar" ] && rm -f "$PRJDIR/extern/phpunit4/phpunit6.phar" "$PRJDIR/extern/phpunit4/phpunit6.phar"
+  [ -f "$PRJDIR/extern/phpunit5/phpunit6.phar" ] && rm -f "$PRJDIR/extern/phpunit5/phpunit6.phar" "$PRJDIR/extern/phpunit5/phpunit6.phar"
+
   ## Download "composer"
   if [ -z "$IS_FORCE" -a -f "$PRJDIR/bin/composer" ]; then
     echo_comment "[[Composer binary ($PRJDIR/bin/composer) already exists. Skipping.]]"
@@ -513,16 +702,26 @@ pushd $PRJDIR >> /dev/null
   ## Cleanup old civix tarballs
   [ -d "$PRJDIR/extern/civix" ] && rm -rf "$PRJDIR/extern/civix"
 
-  ## download_program_if_changed <url> <out-file> <flag-file>
-  download_program_if_changed "$DRUSH8URL" "$PRJDIR/bin/drush8" "$PRJDIR/extern/drush8.txt"
-  download_program_if_changed "$CVURL" "$PRJDIR/bin/cv" "$PRJDIR/extern/cv.txt"
-  download_program_if_changed "$PHPUNITURL" "$PRJDIR/bin/phpunit4" "$PRJDIR/extern/phpunit4.txt"
-  download_program_if_changed "$WPCLIURL" "$PRJDIR/bin/wp" "$PRJDIR/extern/wp-cli.txt"
-  download_program_if_changed "$GITSCANURL" "$PRJDIR/bin/git-scan" "$PRJDIR/extern/git-scan.txt"
-  download_program_if_changed "$AMPURL" "$PRJDIR/bin/amp" "$PRJDIR/extern/amp.txt"
-  download_program_if_changed "$CIVIXURL" "$PRJDIR/bin/civix" "$PRJDIR/extern/civix.txt"
-  download_program_if_changed "$CIVISTRINGSURL" "$PRJDIR/bin/civistrings" "$PRJDIR/extern/civistrings.txt"
-  download_program_if_changed "$JOOMLAURL" "$PRJDIR/bin/joomla" "$PRJDIR/extern/joomla.txt"
+  ## Cleanup old phpunit files
+  for OLDFILE in "$PRJDIR/bin/phpunit4" "$PRJDIR/bin/phpunit5" "$PRJDIR/extern/phpunit4.txt" "$PRJDIR/extern/phpunit5.txt"; do
+    if [ -f "$OLDFILE" -a ! -L "$OLDFILE" ]; then
+      echo_comment "[[Removing old file $OLDFILE]]"
+      rm -f "$OLDFILE"
+    fi
+  done
+
+  if [ ! -f "$PRJDIR/bin/drush8" -o "$PRJDIR/src/drush/drush8.tmpl" -nt  "$PRJDIR/bin/drush8" ]; then
+    ## drush8 was previously downloaded directly. This "cp" ensures we overwrite without git conflicts.
+    echo "[[drush8 ($PRJDIR/bin/drush8): Generate wrapper]]"
+    cp "$PRJDIR/src/drush/drush8.tmpl" "$PRJDIR/bin/drush8"
+  fi
+
+  ## Setup phpunit aliases for CLI usage
+  make_link "$PRJDIR/bin" "drush8" "drush"
+  make_link "$PRJDIR/bin" "../extern/phpunit4/phpunit4.phar" "phpunit4"
+  make_link "$PRJDIR/bin" "../extern/phpunit5/phpunit5.phar" "phpunit5"
+  make_link "$PRJDIR/bin" "../extern/phpunit6/phpunit6.phar" "phpunit6"
+  make_link "$PRJDIR/bin" "../extern/phpunit7/phpunit7.phar" "phpunit7"
 
   ## Download "hub"
   touch "$PRJDIR/extern/hub.txt"
@@ -577,6 +776,7 @@ check_php_ext hash recommended
 check_php_ext imap recommended
 check_php_ext intl recommended
 check_php_ext mbstring recommended
+
 if php -r 'exit(version_compare(PHP_VERSION, 7.0, "<") ? 0 : 1);' ; then
   check_php_ext mysql recommended  ## In case you try to install older Civi versions (<= 4.7.11)
 fi

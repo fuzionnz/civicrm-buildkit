@@ -1,0 +1,247 @@
+#!/bin/bash
+set -e
+PHPUNIT=phpunit5
+
+#################################################
+## Helpers
+function fatal() {
+  echo "$@"
+  exit 1
+}
+
+function getCiviVer() {
+  pushd "$CIVI_CORE" >> /dev/null
+    if [ -f xml/version.xml ]; then
+      ## Works in any git-based build, even if gencode hasn't run yet.
+      php -r 'echo simplexml_load_file("xml/version.xml")->version_no;'
+    else
+      ## works in any tar-based build.
+      php -r 'require "civicrm-version.php"; $a = civicrmVersion(); echo $a["version"];'
+    fi
+  popd >> /dev/null
+}
+
+function show_help() {
+  PROG=$(basename "$0")
+  echo "about: Execute the CiviCRM test suites"
+  echo
+  echo "usage: $PROG [options] <suites>"
+  echo
+  echo "options:"
+  echo "  -h                  Display help"
+  echo "  -b <build-name>     The name of a local site produced by civibuild (required)"
+  echo "  -j <junit-dir>      The path to a folder for storing results in JUnit XML (required)"
+  echo "  --exclude-group <g> Exclude tests with a particular @group"
+  echo "  <suites>            A list of one more of the following:"
+  echo "                        - all"
+  echo "                        - karma"
+  echo "                        - phpunit-api"
+  echo "                        - phpunit-civi"
+  echo "                        - phpunit-crm"
+  echo "                        - phpunit-e2e"
+  echo "                        - phpunit-drupal"
+  echo "                        - phpunit-wordpress"
+  echo "                        - upgrade"
+  echo "                        - upgrade@4.7.30:10"
+  echo
+  echo "example: Run the KarmaJS and DB-upgrade tests on D7/Civi-Master build"
+  echo "  $PROG -b dmaster -j /tmp/junit-output karma upgrade"
+  echo
+}
+
+#################################################
+## Test tasks
+##
+## Each task is responsible for depositing a JUnit XML file under
+## "$JUNITDIR".
+
+function task_phpunit() {
+  SUITE="$1"
+
+  if ! $GUARD phpunit-each $EXCLUDE_GROUP "$CIVI_CORE" "$JUNITDIR" $SUITE ; then
+    EXITCODES="$EXITCODES phpunit"
+  fi
+  echo "Found EXITCODES=\"$EXITCODES\""
+
+  if [ $SUITE = 'E2E_AllTests' ]; then
+      $GUARD civibuild restore "$BLDNAME"
+  fi
+
+  phpunit-xml-cleanup "$JUNITDIR"/*.xml
+}
+
+function task_karma() {
+  $GUARD pushd "$CIVI_CORE"
+    ## Work-around: ensure pradmin user has sa contact
+    ADMIN_USER=$(cv ev 'echo $GLOBALS['_CV']['ADMIN_USER'];')
+    drush -u "$ADMIN_USER" cvapi contact.get id=user_contact_id
+    if [ -f karma.conf.js ]; then
+      if ! $GUARD karma start --browsers PhantomJS --single-run --reporters dots,junit ; then
+        EXITCODES="$EXITCODES karma"
+      fi
+      echo "Found EXITCODES=\"$EXITCODES\""
+      $GUARD cp tests/output/karma.xml "$JUNITDIR/"
+    fi
+  $GUARD popd
+}
+
+## Execute the upgrade test suite
+## ex: task_upgrade @4.3..4.6.30
+function task_upgrade() {
+  ## Run the tests -- DB upgrade tests
+  if  ! $GUARD civibuild upgrade-test $BLDNAME $@ ; then
+    EXITCODES="$EXITCODES upgrade-test"
+  fi
+  echo "Found EXITCODES=\"$EXITCODES\""
+  $GUARD cp "$PRJDIR/app/debug/$BLDNAME/civicrm-upgrade-test.xml" "$JUNITDIR/"
+  $GUARD civibuild restore "$BLDNAME"
+}
+
+#################################################
+## Cleanup left-overs from previous test-runs
+function junit_cleanup() {
+  [ -d "$JUNITDIR" ] && $GUARD rm -rf "$JUNITDIR"
+  [ ! -d "$JUNITDIR" ] && $GUARD mkdir "$JUNITDIR"
+}
+
+function task_phpunit_drupal() {
+  $GUARD pushd "$CIVI_CORE/drupal"
+  if ! $GUARD $PHPUNIT --tap --log-junit "$JUNITDIR/phpunit_drupal.xml" $EXCLUDE_GROUP ; then
+    EXITCODES="$EXITCODES phpunit-drupal"
+  fi
+  echo "Found EXITCODES=\"$EXITCODES\""
+
+  phpunit-xml-cleanup "$JUNITDIR"/*.xml
+  $GUARD popd
+}
+
+function task_phpunit_wordpress() {
+  $GUARD pushd "$CIVI_CORE/.."
+  if ! $GUARD $PHPUNIT --tap --log-junit "$JUNITDIR/phpunit_wordpress.xml" $EXCLUDE_GROUP ; then
+    EXITCODES="$EXITCODES phpunit-wordpress"
+  fi
+  echo "Found EXITCODES=\"$EXITCODES\""
+
+  phpunit-xml-cleanup "$JUNITDIR"/*.xml
+  $GUARD popd
+}
+
+## Determine the absolute path of the directory with the file
+## absdirname <file-path>
+function absdirname() {
+  pushd $(dirname $0) >> /dev/null
+    pwd
+  popd >> /dev/null
+}
+
+BINDIR=$(absdirname "$0")
+PRJDIR=$(dirname "$BINDIR")
+[ -z "$CIVIBUILD_HOME" ] && TMPDIR="$PRJDIR/app/tmp" || TMPDIR="$CIVIBUILD_HOME/.civibuild/tmp"
+[ -z "$CIVIBUILD_HOME" ] && BLDDIR="$PRJDIR/build" || BLDDIR="$CIVIBUILD_HOME"
+EXITCODES=
+SUITES=
+EXCLUDE_GROUP=
+GUARD=
+
+[ -f "$PRJDIR/app/civibuild.conf" ] && source "$PRJDIR/app/civibuild.conf"
+
+#################################################
+## Parse inputs
+while [ -n "$1" ] ; do
+  OPTION="$1"
+  shift
+
+  case "$OPTION" in
+    -b)
+      BLDNAME="$1"
+      [ -d "$BLDDIR/$BLDNAME/web" ] && pushd "$BLDDIR/$BLDNAME/web" || pushd "$BLDDIR/$BLDNAME"
+        CIVI_CORE=$(cv ev 'echo $GLOBALS["civicrm_root"];')
+        ## or: cv path -d '[civicrm.root]'
+      popd
+      shift
+      ;;
+
+    -j)
+      JUNITDIR="$1"
+      junit_cleanup
+      shift
+      ;;
+
+    --exclude-group)
+      EXCLUDE_GROUP="--exclude-group $1"
+      shift
+      ;;
+
+    -h|--help|-?)
+      show_help
+      exit 2
+      ;;
+
+    *)
+      SUITES=$(echo "$SUITES" "$OPTION" | xargs)
+      # note: xargs strips leading/trailing spaces
+      ;;
+  esac
+done
+
+## Validate
+if [ -z "$SUITES" -o -z "$BLDNAME" -o -z "$JUNITDIR" ]; then
+  echo "Error: Missing required argument"
+  echo
+  show_help
+  exit 2
+fi
+
+if [ "$SUITES" = "all" ]; then
+  if [ -f "$CIVI_CORE/tests/phpunit/E2E/AllTests.php" ]; then
+    SUITES="karma upgrade phpunit-e2e phpunit-crm phpunit-api phpunit-civi"
+  else
+    SUITES="karma upgrade phpunit-crm phpunit-api phpunit-civi"
+  fi
+elif [[ " $SUITES " =~ \ all\  ]]; then
+  echo "The \"all\" target should not be mixed with other targets."
+  exit 3
+fi
+
+## Main
+for TESTTYPE in $SUITES ; do
+  case "$TESTTYPE" in
+    karma)  task_karma ;;
+    upgrade)  CIVIVER=$(getCiviVer) ; task_upgrade 4.2.9-multilingual_af_bg_en* "@4.3..$CIVIVER:10" ;;
+    upgrade@*)  task_upgrade $(echo $TESTTYPE | sed s'/^upgrade//' ) ;;
+    phpunit-e2e)  task_phpunit E2E_AllTests ;;
+    phpunit-crm)  task_phpunit CRM_AllTests ;;
+    phpunit-api)  task_phpunit api_v3_AllTests ;;
+    phpunit-civi)  task_phpunit 'Civi\AllTests' ;;
+    phpunit-drupal) task_phpunit_drupal ;;
+    phpunit-wordpress) task_phpunit_wordpress ;;
+    *) echo "unrecognized suite: $TESTTYPE"; exit 2 ;;
+  esac
+done
+
+## Check test results and set exit code
+echo "Check test results and set exit code"
+cat "$JUNITDIR"/*.xml | grep '<failure' -q && fatal "Found <failure> in XML"
+cat "$JUNITDIR"/*.xml | grep '<error' -q && fatal "Found <error> in XML"
+for TESTTYPE in $SUITES ; do
+  if  [ $TESTTYPE = "upgrade" ] || [ $TESTTYPE = "all" ] ; then
+    [ ! -f "$JUNITDIR/civicrm-upgrade-test.xml" ] && fatal "Missing XML: civicrm-upgrade-test.xml"
+  fi
+  if  [ $TESTTYPE = "phpunit-crm" ] || [ $TESTTYPE = "all" ] ; then
+    [ ! -f "$JUNITDIR/CRM_AllTests.xml" ] && fatal "Missing XML: CRM_AllTests.xml"
+  fi
+  if  [ $TESTTYPE = "phpunit-api" ] || [ $TESTTYPE = "all" ] ; then
+    [ ! -f "$JUNITDIR/api_v3_AllTests.xml" ] && fatal "Missing XML: api_v3_AllTests.xml"
+  fi
+  if  [ $TESTTYPE = "phpunit-civi" ] || [ $TESTTYPE = "all" ] ; then
+    [ ! -f "$JUNITDIR/Civi\\AllTests.xml" ] && fatal "Missing XML: Civi\\AllTests.xml"
+  fi
+  if  [ $TESTTYPE = "phpunit-e2e" ] || [ $TESTTYPE = "all" ] ; then
+    [ ! -f "$JUNITDIR/E2E_AllTests.xml" ] && fatal "Missing XML: E2E_AllTests.xml"
+  fi
+  if  [ $TESTTYPE = "karma" ] || [ $TESTTYPE = "all" ] ; then
+    [ -d "$CIVI_CORE/tests/karma" -a ! -f "$JUNITDIR/karma.xml" ] && fatal "Missing XML: karma.xml"
+  fi
+done
+[ -n "$EXITCODES" ] && fatal "At least one command failed abnormally [$EXITCODES]"
+echo "Exit normally"

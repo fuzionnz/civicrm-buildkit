@@ -6,6 +6,9 @@ function civibuild_parse_unnamed_params() {
     #skip named options
     [ "${OPTION::1}" == "-" ] && continue
 
+    # if an option is "help" (not "--help") just show usage
+    [ "$OPTION" == "help" ] && civibuild_app_usage
+
     # don't overwrite SITE_NAME if already set
     [ -n "$SITE_NAME" ] && continue
 
@@ -113,7 +116,8 @@ declare -a ARGS=()
 function civibuild_parse() {
   source "$PRJDIR/src/civibuild.defaults.sh"
   [ -f "$PRJDIR/app/civibuild.conf" ] && source "$PRJDIR/app/civibuild.conf"
-  cvutil_mkdir "$TMPDIR" "$BLDDIR" "$PRJDIR/app/private"
+  cvutil_mkdir "$TMPDIR" "$BLDDIR"
+  [ -z "$CIVIBUILD_HOME" ] && cvutil_mkdir "$PRJDIR/app/private"
 
   civibuild_parse_unnamed_params $@
 
@@ -186,6 +190,11 @@ function civibuild_parse() {
         shift
         ;;
 
+      --ext)
+        EXT_DLS="$EXT_DLS $1"
+        shift
+        ;;
+
       --force)
         FORCE_DOWNLOAD=1
         FORCE_INSTALL=1
@@ -244,6 +253,10 @@ function civibuild_parse() {
       --type)
         SITE_TYPE="$1"
         shift
+        ;;
+
+      --test-ext)
+        PHPUNIT_TGT_EXT="$1"
         ;;
 
       --url)

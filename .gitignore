@@ -1,5 +1,7 @@
 *~
 .idea
+.composer-downloads
+app/AMPHOME/
 app/cache/
 app/civibuild.conf
 app/civicrm.settings.d/*.local.php
@@ -18,11 +20,15 @@ bin/boris
 bin/boris.bat
 bin/bower
 bin/bower.bat
+bin/box
+bin/civici
 bin/civicrm-upgrade-test
 bin/civicrm-upgrade-test.bat
 bin/civistrings
 bin/civistrings.bat
 bin/civix
+bin/_codecept-php5.phar
+bin/_codecept-php7.phar
 bin/composer
 bin/cv
 bin/dbunit
@@ -54,6 +60,8 @@ bin/phpcs.bat
 bin/phpunit
 bin/phpunit.bat
 bin/phpunit4
+bin/phpunit5
+bin/phpunit6
 bin/protractor
 bin/webdriver-manager
 bin/wp

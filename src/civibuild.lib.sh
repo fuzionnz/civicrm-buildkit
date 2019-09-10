@@ -11,11 +11,16 @@
 ###############################################################################
 ## Assert that shell variables are defined. If not defined, exit with an error.
 ## usage: assertvars <context> <var1> <var2> <var3> ...
+## exmple: cvutil_assertvars civibuild_app_download WEB_ROOT PRJDIR CACHE_DIR SITE_NAME SITE_TYPE
 function cvutil_assertvars() {
   _cvutil_assertvars_back="$-"
 
+  # disable verbose output:
   set +x
+
+  # the calling function name:
   context="$1"
+
   shift
   while [ "$1" ]; do
     var="$1"
@@ -27,7 +32,23 @@ function cvutil_assertvars() {
     shift
   done
 
+  #restore previous bash options (revert set +x)
   set -${_cvutil_assertvars_back}
+}
+
+###############################################################################
+## Find the location of <item> in a list of paths.
+## usage: cvutil_path_search <item> <parent1>:<parent2>:...
+## example: cvutil_path_search ls /usr/local/bin:/usr/bin:/bin
+function cvutil_path_search() {
+  local search_target="$1"
+  local search_paths="$2"
+  printf %s "$search_paths" | awk 'BEGIN {RS=":"}; 1' | while read candidate ; do
+    if [ -n "$candidate" -a -e "$candidate/$search_target" ]; then
+      echo "$candidate/$search_target"
+      break
+    fi
+  done
 }
 
 ###############################################################################
@@ -84,15 +105,36 @@ function cvutil_export() {
 }
 
 ###############################################################################
+##  usage: cvutil-fatal <message>
+function cvutil_fatal() {
+  echo "$@" >&2
+  exit 90
+}
+
+###############################################################################
+## Delete a file try, overriding any unwriteable file permissions
+function cvutil_rmrf() {
+  local folder="$1"
+  if [ -z "$folder" ]; then
+    return
+  fi
+  if [ ! -e "$folder" ]; then
+    return
+  fi
+  find "$folder" -type d -print0 | xargs -0 -n 20 chmod u+w
+  rm -rf "$folder"
+}
+
+###############################################################################
 ## Summarize the content of key environment variables
 ## usage: cvutil_summary <message> <var1> <var2> ...
 function cvutil_summary() {
+# Not asserting any vars because then we can't report that they are in fact empty.
   if [ -n "$1" ]; then
     echo $1
   fi
   shift
 
-  cvutil_assertvars cvutil_summary "$@"
   for var in "$@" ; do
     eval "val=\$$var"
     echo " - $var: $val"
@@ -134,7 +176,7 @@ function cvutil_mkurl() {
   local subsite_name="$1"
   cvutil_assertvars cvutil_mkurl URL_TEMPLATE
   if [ "%AUTO%" == "$URL_TEMPLATE" ]; then
-    echo "http://%subsite_name%.dev" | sed "s;%SITE_NAME%;$subsite_name;g"
+    echo "http://%subsite_name%.test" | sed "s;%SITE_NAME%;$subsite_name;g"
   else
     echo "$URL_TEMPLATE" | sed "s;%SITE_NAME%;$subsite_name;g"
   fi
@@ -356,14 +398,14 @@ function amp_snapshot_create() {
     echo "[[Save CMS DB ($CMS_DB_NAME) to file ($CMS_SQL)]]"
     cvutil_assertvars amp_snapshot_create CMS_SQL CMS_DB_ARGS CMS_DB_NAME
     cvutil_makeparent "$CMS_SQL"
-    eval mysqldump $CMS_DB_ARGS | gzip > "$CMS_SQL"
+    amp sql:dump --root="$CMS_ROOT" -Ncms | gzip > "$CMS_SQL"
   fi
 
   if [ -z "$CIVI_SQL_SKIP" ]; then
     echo "[[Save Civi DB ($CIVI_DB_NAME) to file ($CIVI_SQL)]]"
     cvutil_assertvars amp_snapshot_create CIVI_SQL CIVI_DB_ARGS CIVI_DB_NAME
     cvutil_makeparent "$CIVI_SQL"
-    eval mysqldump $CIVI_DB_ARGS | gzip > "$CIVI_SQL"
+    amp sql:dump --root="$CMS_ROOT" -Ncivi | gzip > "$CIVI_SQL"
   fi
 }
 
@@ -395,7 +437,7 @@ function _amp_snapshot_restore_cms() {
     echo "  NEW: $CMS_DB_DSN" 1>&2
   fi
 
-  _amp_snapshot_restore CMS "$CMS_SQL"
+  _amp_snapshot_restore "$CMS_ROOT" cms "$CMS_SQL"
 }
 
 function _amp_snapshot_restore_civi() {
@@ -408,7 +450,7 @@ function _amp_snapshot_restore_civi() {
     echo "  NEW: $CIVI_DB_DSN" 1>&2
   fi
 
-  _amp_snapshot_restore CIVI "$CIVI_SQL"
+  _amp_snapshot_restore "$CMS_ROOT" civi "$CIVI_SQL"
 }
 
 function _amp_snapshot_restore_test() {
@@ -421,14 +463,14 @@ function _amp_snapshot_restore_test() {
     echo "  NEW: $TEST_DB_DSN" 1>&2
   fi
 
-  _amp_snapshot_restore TEST "$CIVI_SQL"
+  _amp_snapshot_restore "$CMS_ROOT" test "$CIVI_SQL"
 }
 
 ## Load a sql snapshot into the given DB
 ## usage: _amp_snapshot_restore <DB_PREFIX> <sql-file>
-## example: _amp_snapshot_restore CMS "/path/to/cms.sql.gz"
-## example: _amp_snapshot_restore CIVI "/path/to/civi.sql.gz"
-function _amp_snapshot_restore() {
+## example: _amp_snapshot_restore_clone CMS "/path/to/cms.sql.gz"
+## example: _amp_snapshot_restore_clone CIVI "/path/to/civi.sql.gz"
+function _amp_snapshot_restore_clone() {
   cvutil_assertvars amp_snapshot_restore_X $1_DB_ARGS $1_DB_NAME
   local db_name=$(eval echo \$${1}_DB_NAME)
   local db_args=$(eval echo \$${1}_DB_ARGS)
@@ -440,6 +482,23 @@ function _amp_snapshot_restore() {
     exit 1
   fi
   gunzip --stdout "$sql_file" | eval mysql $db_args
+}
+
+## Load a sql snapshot into the given DB
+## usage: _amp_snapshot_restore <amproot> <ampname> <sql-file>
+## example: _amp_snapshot_restore "$CMS_ROOT" civi "/path/to/cms.sql.gz"
+function _amp_snapshot_restore() {
+  cvutil_assertvars amp_snapshot_restore_X $1_DB_ARGS $1_DB_NAME
+  local db_root="$1"
+  local db_name="$2"
+  local sql_file="$3"
+
+  echo "[[Restore \"$1\" DB ($db_name) from file ($sql_file)]]"
+  if [ ! -f "$sql_file" ]; then
+    echo "Missing SQL file: $sql_file" 1>&2
+    exit 1
+  fi
+  gunzip --stdout "$sql_file" | amp sql --root="$db_root" --name="$db_name"
 }
 
 
@@ -476,16 +535,16 @@ function civicrm_install() {
       env SITE_ID="$SITE_ID" bash ./bin/setup.sh -Dgsdf
     elif [ -e "xml" -a -e "bin/setup.sh" -a -z "$NO_SAMPLE_DATA" ]; then
       env SITE_ID="$SITE_ID" bash ./bin/setup.sh
-    elif [ -e "sql/civicrm.mysql" -a -e "sql/civicrm_generated.mysql" -a -z "$NO_SAMPLE_DATA"]; then
-      cat sql/civicrm.mysql sql/civicrm_generated.mysql | eval mysql $CIVI_DB_ARGS
+    elif [ -e "sql/civicrm.mysql" -a -e "sql/civicrm_generated.mysql" -a -z "$NO_SAMPLE_DATA" ]; then
+      cat sql/civicrm.mysql sql/civicrm_generated.mysql | amp sql -Ncivi --root="$CMS_ROOT"
     elif [ -e "sql/civicrm.mysql" -a -e "sql/civicrm_data.mysql" -a -n "$NO_SAMPLE_DATA" ]; then
-      cat sql/civicrm.mysql sql/civicrm_data.mysql | eval mysql $CIVI_DB_ARGS
+      cat sql/civicrm.mysql sql/civicrm_data.mysql | amp sql -Ncivi --root="$CMS_ROOT"
     else
       echo "Failed to locate civi SQL files"
     fi
   popd >> /dev/null
 
-  eval mysql $CIVI_DB_ARGS <<EOSQL
+  amp sql -Ncivi --root="$CMS_ROOT" <<EOSQL
     UPDATE civicrm_domain SET name = '$CIVI_DOMAIN_NAME';
     SELECT @option_group_id := id
       FROM civicrm_option_group n
@@ -495,6 +554,36 @@ function civicrm_install() {
       WHERE option_group_id = @option_group_id
       AND value = '1';
 EOSQL
+}
+
+###############################################################################
+## Appy more default values
+function civicrm_apply_demo_defaults() {
+  if cv ev 'exit(version_compare(CRM_Utils_System::version(), "4.7.0", "<") ?0:1);' ; then
+    cv api setting.create versionCheck=0 debug=1
+  fi
+  cv api MailSettings.create id=1 is_default=1 domain=example.org debug=1
+  if [ -z "$NO_SAMPLE_DATA" ]; then
+    cv -vv ev 'eval(file_get_contents("php://stdin"));' <<EOPHP
+      \$cid = civicrm_api3('Domain', 'getvalue', array(
+        'id' => 1,
+        'return' => 'contact_id'
+      ));
+      civicrm_api3('Address', 'create', array(
+        'contact_id' => \$cid,
+        'location_type_id' => 1,
+        'street_address' => '123 Some St',
+        'city' => 'Hereville',
+        'country_id' => 'US',
+        'state_province_id' => 'California',
+        'postal_code' => '94100',
+        'options' => array(
+          'match' => array('contact_id', 'location_type_id'),
+        ),
+      ));
+EOPHP
+  fi
+  cv en --ignore-missing api4
 }
 
 ###############################################################################
@@ -659,6 +748,50 @@ EOF
 }
 
 ###############################################################################
+## Determine the version# of the CiviCRM codebase
+## usage: civicrm_get_ver <path>
+## ex:    ver=$(civicrm_get_ver .)
+## ex:    ver=$(civicrm_get_ver /var/www/sites/all/modules/civicrm)
+function civicrm_get_ver() {
+  pushd "$1" >> /dev/null
+    if [ -f xml/version.xml ]; then
+      ## Works in any git-based build, even if gencode hasn't run yet.
+      php -r 'echo simplexml_load_file("xml/version.xml")->version_no;'
+    else
+      ## works in any tar-based build.
+      php -r 'require "civicrm-version.php"; $a = civicrmVersion(); echo $a["version"];'
+    fi
+  popd >> /dev/null
+}
+
+###############################################################################
+## usage: civicrm_ext_download_bare <key> <path>
+function civicrm_ext_download_bare() {
+  local civiVer=$(civicrm_get_ver .)
+  cv dl -b "@https://civicrm.org/extdir/ver=$civiVer|cms=Drupal/$1.xml" --to="$2"
+}
+
+###############################################################################
+## usage: Convert a CiviCRM version branch/tag expression to a composer version expression
+## example: civicrm_composer_ver master ==> "dev-master"
+function civicrm_composer_ver() {
+  local branchTag="$1"
+  if [[ "$branchTag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    ## Specific tag versions don't need to be changed.
+    echo "$branchTag"
+  elif [[ "$branchTag" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    ## Numeric branches get a dev suffix
+    echo "$branchTag.x-dev"
+  elif [[ "$branchTag" =~ dev ]]; then
+    ## "dev-" indicates that the caller has already put into composer notation.
+    echo "$branchTag"
+  else
+    ## Non-numeric branches get a dev prefix
+    echo "dev-$branchTag"
+  fi
+}
+
+###############################################################################
 ## Generate config files and setup database
 function wp_install() {
   cvutil_assertvars wp_install CMS_ROOT CMS_DB_NAME CMS_DB_USER CMS_DB_PASS CMS_DB_HOST CMS_URL ADMIN_USER ADMIN_PASS ADMIN_EMAIL CMS_TITLE
@@ -692,7 +825,7 @@ PHP
 
     ## Create WP data dirs
     cvutil_mkdir "wp-content/plugins/modules"
-    amp datadir "wp-content/plugins/files"
+    amp datadir "wp-content/plugins/files" "wp-content/uploads/"
 
     cvutil_inject_settings "wp-config.php" "wp-config.d"
   popd >> /dev/null
@@ -1020,6 +1153,7 @@ function joomla_install() {
     --overwrite \
     --skip-exists-check \
     "$child"
+  amp datadir "$CMS_ROOT/logs" "$CMS_ROOT/tmp"
 }
 
 ###############################################################################

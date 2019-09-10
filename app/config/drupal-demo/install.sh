@@ -2,6 +2,10 @@
 
 ## install.sh -- Create config files and databases; fill the databases
 
+## Transition: Old builds don't have "web/" folder. New builds do.
+## TODO: Simplify sometime after Dec 2019
+[ -d "$WEB_ROOT/web" ] && CMS_ROOT="$WEB_ROOT/web"
+
 ###############################################################################
 ## Create virtual-host and databases
 
@@ -18,16 +22,16 @@ drupal_install
 DRUPAL_SITE_DIR=$(_drupal_multisite_dir "$CMS_URL" "$SITE_ID")
 CIVI_DOMAIN_NAME="Demonstrators Anonymous"
 CIVI_DOMAIN_EMAIL="\"Demonstrators Anonymous\" <info@example.org>"
-CIVI_CORE="${WEB_ROOT}/sites/all/modules/civicrm"
-CIVI_SETTINGS="${WEB_ROOT}/sites/${DRUPAL_SITE_DIR}/civicrm.settings.php"
-CIVI_FILES="${WEB_ROOT}/sites/${DRUPAL_SITE_DIR}/files/civicrm"
+CIVI_CORE="${CMS_ROOT}/sites/all/modules/civicrm"
+CIVI_SETTINGS="${CMS_ROOT}/sites/${DRUPAL_SITE_DIR}/civicrm.settings.php"
+CIVI_FILES="${CMS_ROOT}/sites/${DRUPAL_SITE_DIR}/files/civicrm"
 CIVI_TEMPLATEC="${CIVI_FILES}/templates_c"
 
 CIVI_UF="Drupal"
 
 ## civicrm-core v4.7+ sets default ext dir; for older versions, we'll set our own.
 if [[ "$CIVI_VERSION" =~ ^4.[0123456](\.([0-9]|alpha|beta)+)?$ ]] ; then
-  CIVI_EXT_DIR="${WEB_ROOT}/sites/${DRUPAL_SITE_DIR}/ext"
+  CIVI_EXT_DIR="${CMS_ROOT}/sites/${DRUPAL_SITE_DIR}/ext"
   CIVI_EXT_URL="${CMS_URL}/sites/${DRUPAL_SITE_DIR}/ext"
 fi
 
@@ -35,7 +39,7 @@ civicrm_install
 
 ###############################################################################
 ## Extra configuration
-pushd "${WEB_ROOT}/sites/${DRUPAL_SITE_DIR}" >> /dev/null
+pushd "${CMS_ROOT}/sites/${DRUPAL_SITE_DIR}" >> /dev/null
 
   drush -y updatedb
   drush -y en civicrm toolbar locale garland login_destination userprotect
@@ -46,8 +50,8 @@ pushd "${WEB_ROOT}/sites/${DRUPAL_SITE_DIR}" >> /dev/null
   echo '{"enable_components":["CiviEvent","CiviContribute","CiviMember","CiviMail","CiviReport","CiviPledge","CiviCase","CiviCampaign","CiviGrant"]}' \
     | drush cvapi setting.create --in=json
   ## Note: CiviGrant disabled by default. If you enable, update the permissions as well.
-  drush cvapi setting.create versionCheck=0 debug=1
-  drush cvapi MailSettings.create id=1 is_default=1 domain=example.org debug=1
+  civicrm_apply_demo_defaults
+  cv ev 'if(is_callable(array("CRM_Core_BAO_CMSUser","synchronize"))){CRM_Core_BAO_CMSUser::synchronize(FALSE);}else{CRM_Utils_System::synchronizeUsers();}'
 
   ## Setup theme
   #above# drush -y en garland
@@ -112,9 +116,11 @@ EOPERM
     add 'register to volunteer'
 EOPERM
 
-  drush -y -u "$ADMIN_USER" cvapi extension.install key=org.civicoop.civirules debug=1
-  drush -y -u "$ADMIN_USER" cvapi extension.install key=eu.tttp.civisualize debug=1
-  drush -y -u "$ADMIN_USER" cvapi extension.install key=org.civicrm.module.cividiscount debug=1
+  cv en civirules civisualize cividiscount
+
+  ## Demo sites always disable email and often disable cron
+  drush cvapi StatusPreference.create ignore_severity=critical name=checkOutboundMail
+  drush cvapi StatusPreference.create ignore_severity=critical name=checkLastCron
 
   ## Setup CiviCRM dashboards
   INSTALL_DASHBOARD_USERS="$ADMIN_USER;$DEMO_USER" drush scr "$SITE_CONFIG_DIR/install-dashboard.php"

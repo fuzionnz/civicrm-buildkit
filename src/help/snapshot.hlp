@@ -1,0 +1,17 @@
+[33mUsage:[0m
+  snapshot <build-name>[/<ms-id>] [options]
+
+[33mArguments:[0m
+[32m  <build-name>[0m           The name of the sub-directory to build
+[32m  <ms-id>[0m                The unique id for a site within a multisite build
+
+[33mOptions:[0m
+[32m  --snapshot <name>[0m      The name of the snapshot subdirectory. (If omitted, assume <build-name>) [Optional]
+[32m  --cms-sql <sql-file>[0m   The path to a SQL backup of the CMS DB [Optional]
+[32m  --no-cms[0m               Skip resetting the CMS DB [Optional]
+[32m  --civi-sql <sql-file>[0m  The path to a SQL backup of the CiviCRM DB [Optional]
+[32m  --no-civi[0m              Skip resetting the CiviCRM DB [Optional]
+
+[33mNB:[0m For more civibuild documentation see https://docs.civicrm.org/dev/en/latest/tools/civibuild/
+
+[0m

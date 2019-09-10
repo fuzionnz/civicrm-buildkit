@@ -33,7 +33,7 @@ if (!file_exists($basedir) || !is_dir($basedir)) {
 
 
 ########################################################################################
-$exts = json_decode(file_get_contents('https://civicrm.org/extdir/git-urls.json'), 1);
+$exts = json_decode(file_get_contents('https://civicrm.org/extdir/git-urls'), 1);
 $core = array(
   'civicrm-core' => array(
     'git_url' => 'https://github.com/civicrm/civicrm-core',
@@ -41,6 +41,9 @@ $core = array(
   'civicrm-backdrop-1.x' => array(
     'git_url' => 'https://github.com/civicrm/civicrm-backdrop',
     'git_branch' => '1.x-master',
+  ),
+  'civicrm-buildkit' => array(
+    'git_url' => 'https://github.com/civicrm/civicrm-buildkit',
   ),
   'civicrm-drupal-6.x' => array(
     'git_url' => 'https://github.com/civicrm/civicrm-drupal',
@@ -57,16 +60,65 @@ $core = array(
   'civicrm-joomla' => array(
     'git_url' => 'https://github.com/civicrm/civicrm-joomla',
   ),
-  'civicrm-l10n' => array(
-    'git_url' => 'https://github.com/civicrm/l10n',
-  ),
   'civicrm-packages' => array(
     'git_url' => 'https://github.com/civicrm/civicrm-packages',
+  ),
+  'civicrm-setup' => array(
+    'git_url' => 'https://github.com/civicrm/civicrm-setup',
   ),
   'civicrm-wordpress' => array(
     'git_url' => 'https://github.com/civicrm/civicrm-wordpress',
   ),
+  'civihr' => array(
+    'git_url' => 'https://github.com/civicrm/civihr',
+    'git_branch' => 'staging',
+  ),
+  'com.webaccessglobal.module.civimobile' => array(
+    'git_url' => 'https://github.com/webaccess/com.webaccessglobal.module.civimobile',
+  ),
+  'civix' => array(
+    'git_url' => 'https://github.com/totten/civix',
+  ),
 );
+
+// These repos all have basic names and use default branch.
+$subRepos = array(
+  'apachesolr_civiAttachments',
+  'api4',
+  'civicon',
+  'civicrm-ac',
+  'civicrm-botdylan',
+  'civicrm-community-messages',
+  'civicrm-cxn-rpc',
+  'civicrm-demo-wp',
+  'civicrm-docs',
+  'civicrm-extdir-example',
+  'civicrm-l10n-extensions',
+  'civicrm-org-platform',
+  'civicrm-org-site',
+  'civicrm-pingback',
+  'civicrm-statistics',
+  'civicrm-upgrade-test',
+  'coder',
+  'cv-nodejs',
+  'cxnapp',
+  'pr-report',
+  'zetacomponents-mail',
+  'cv',
+  'civistrings',
+  'civicrm-user-guide',
+  'civicrm-dev-docs',
+  'civicrm-infra',
+  'civicrm-dist-manager',
+  'release-management',
+  'l10n',
+);
+foreach ($subRepos as $subRepo) {
+  $core[$subRepo] = array(
+    'git_url' => 'https://github.com/civicrm/' . $subRepo,
+  );
+}
+
 $deprecated = array('civicrm-drupal');
 
 
@@ -90,7 +142,7 @@ foreach ($repos as $key => $ext) {
   }
 
   if (file_exists("$dir/composer.json") && $statuses[$key] == 0) {
-    $statuses[$key] = run($dir, "composer install");
+    $statuses[$key] = run($dir, "composer install --no-scripts");
   }
 }
 
